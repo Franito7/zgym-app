@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-primary: #07090e;
+    --bg-surface: #0f1422;
+    --bg-surface-hover: #172033;
+    --bg-card: #0d121d;
+    --border-color: #1a2438;
+    --border-glow: rgba(37, 99, 235, 0.4);
+    --brand-blue: #2563eb;
+    --brand-cyan: #38bdf8;
+    --brand-gold: #f59e0b;
+    --brand-rose: #ef4444;
+    --brand-emerald: #10b981;
+    --font-brand: 'Grenze Gotisch', 'Pirata One', 'UnifrakturMaguntia', cursive, sans-serif;
+    --font-sans: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-display: 'Barlow Condensed', sans-serif;
+  }
+
+  * {
+    border-color: var(--border-color);
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background-color: var(--bg-primary);
+    color: #f8fafc;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+}
+
+.font-brand {
+  font-family: var(--font-brand);
+  letter-spacing: 0.04em;
+}
+
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: 0.03em;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+/* Scrollbars sutiles para móvil y desktop */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 9999px;
+}
+
+/* Tarjetas y superficies ZGym */
+.zgym-card {
+  background: linear-gradient(180deg, rgba(15, 20, 34, 0.95) 0%, rgba(10, 14, 24, 0.98) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.12);
+  border-radius: 16px;
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.7);
+}
+
+.zgym-card-interactive {
+  transition: all 0.15s ease-out;
+}
+.zgym-card-interactive:active {
+  transform: scale(0.985);
+  border-color: rgba(56, 189, 248, 0.35);
+}
+
+/* Efecto de cristal esmerilado para Bottom Sheets y Headers */
+.glass-panel {
+  background: rgba(15, 20, 34, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+/* Soporte para zonas seguras de notch móvil (iOS / Android) */
+.safe-bottom {
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
+.safe-top {
+  padding-top: max(12px, env(safe-area-inset-top));
+}

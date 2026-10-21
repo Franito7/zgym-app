@@ -1,0 +1,33 @@
+{
+  "name": "gym-platform-server",
+  "version": "1.0.0",
+  "description": "Backend API para plataforma de gimnasio y auditorías online",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch-path=src src/server.js",
+    "migrate": "node src/database/migrate.js",
+    "seed": "node src/database/seed.js"
+  },
+  "keywords": [
+    "gym",
+    "fitness",
+    "audit",
+    "express",
+    "postgresql"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^13.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.4.0",
+    "pg": "^8.13.1"
+  }
+}
