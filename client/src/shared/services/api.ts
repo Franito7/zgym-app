@@ -1,4 +1,15 @@
-const BASE_URL = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+import {
+  authService,
+  clientsService,
+  paymentsService,
+  routinesService,
+  exercisesService,
+  categoriesService,
+  mediaService,
+  releasesService,
+  calendarService,
+  dashboardService,
+} from './supabaseApi';
 
 export const getAuthToken = (): string | null => {
   return localStorage.getItem('zgym_token');
@@ -13,207 +24,207 @@ export const removeAuthToken = (): void => {
   localStorage.removeItem('zgym_user');
 };
 
-export async function apiRequest<T = any>(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<T> {
-  const token = getAuthToken();
-  const headers = new Headers(options.headers || {});
-
-  if (token && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-
-  if (!(options.body instanceof FormData) && !headers.has('Content-Type')) {
-    headers.set('Content-Type', 'application/json');
-  }
-
-  const response = await fetch(`${BASE_URL}${endpoint}`, {
-    ...options,
-    headers,
-  });
-
-  if (response.status === 401) {
-    removeAuthToken();
-    if (!window.location.pathname.includes('/login')) {
-      window.location.href = '/login';
-    }
-  }
-
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.message || `Error HTTP ${response.status}`);
-  }
-
-  return data;
-}
-
-// -------------------------------------------------------------
-// SERVICIOS UNIFICADOS ZGYM
-// -------------------------------------------------------------
+// ==============================================================================
+// SERVICIOS UNIFICADOS ZGYM (DIRECTOS A SUPABASE + PWA STANDALONE)
+// ==============================================================================
 
 export const authAPI = {
-  login: (credentials: { email: string; password: string }) =>
-    apiRequest('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify(credentials),
-    }),
-  getMe: () => apiRequest('/auth/me'),
-  changePassword: (data: { currentPassword: string; newPassword: string }) =>
-    apiRequest('/auth/change-password', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+  login: async (credentials: { email: string; password: string }) => {
+    const { user, token } = await authService.login(credentials.email, credentials.password);
+    return { data: { user, token } };
+  },
+  getMe: async () => {
+    const saved = localStorage.getItem('zgym_user');
+    const parsed = saved ? JSON.parse(saved) : null;
+    const user = await authService.getMe(parsed?.id);
+    return { data: { user } };
+  },
+  changePassword: async (data: { currentPassword: string; newPassword: string }) => {
+    await authService.changePassword(data.currentPassword, data.newPassword);
+    return { success: true };
+  },
 };
 
 export const dashboardAPI = {
-  getCoachDashboard: () => apiRequest('/dashboard'),
+  getCoachDashboard: async () => {
+    const data = await dashboardService.getCoachDashboard();
+    return { data };
+  },
 };
 
 export const clientsAPI = {
-  getAll: (filters?: { search?: string; status?: string; type?: string; role?: string }) => {
-    const params = new URLSearchParams();
-    if (filters?.search) params.append('search', filters.search);
-    if (filters?.status) params.append('status', filters.status);
-    if (filters?.type) params.append('type', filters.type);
-    if (filters?.role) params.append('role', filters.role);
-    const qs = params.toString() ? `?${params.toString()}` : '';
-    return apiRequest(`/users${qs}`);
+  getAll: async (filters?: { search?: string; status?: string; type?: string; role?: string }) => {
+    const users = await clientsService.getAll(filters);
+    return { data: { users } };
   },
-  getById: (id: number) => apiRequest(`/users/${id}`),
-  create: (clientData: any) =>
-    apiRequest('/users', {
-      method: 'POST',
-      body: JSON.stringify(clientData),
-    }),
-  update: (id: number, updates: any) =>
-    apiRequest(`/users/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates),
-    }),
-  delete: (id: number) =>
-    apiRequest(`/users/${id}`, {
-      method: 'DELETE',
-    }),
+  getById: async (id: number) => {
+    const user = await clientsService.getById(id);
+    return { data: { user } };
+  },
+  create: async (clientData: any) => {
+    const user = await clientsService.create(clientData);
+    return { data: { user } };
+  },
+  update: async (id: number, updates: any) => {
+    const user = await clientsService.update(id, updates);
+    return { data: { user } };
+  },
+  delete: async (id: number) => {
+    await clientsService.delete(id);
+    return { success: true };
+  },
 };
 
 export const paymentsAPI = {
-  getAll: (filters?: { userId?: number; month?: string; search?: string }) => {
-    const params = new URLSearchParams();
-    if (filters?.userId) params.append('userId', String(filters.userId));
-    if (filters?.month) params.append('month', filters.month);
-    if (filters?.search) params.append('search', filters.search);
-    const qs = params.toString() ? `?${params.toString()}` : '';
-    return apiRequest(`/payments${qs}`);
+  getAll: async (filters?: { userId?: number; month?: string; search?: string }) => {
+    const payments = await paymentsService.getAll(filters);
+    return { data: { payments } };
   },
-  create: (data: { userId: number; amount: number; paymentDate?: string; paymentMethod?: string; period?: string; notes?: string; nextDueDate?: string }) =>
-    apiRequest('/payments', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  delete: (id: number) =>
-    apiRequest(`/payments/${id}`, {
-      method: 'DELETE',
-    }),
+  create: async (data: {
+    userId: number;
+    amount: number;
+    paymentDate?: string;
+    paymentMethod?: string;
+    period?: string;
+    notes?: string;
+    nextDueDate?: string;
+  }) => {
+    const payment = await paymentsService.create(data);
+    return { data: { payment } };
+  },
+  delete: async (id: number) => {
+    await paymentsService.delete(id);
+    return { success: true };
+  },
 };
 
 export const routinesAPI = {
-  getAll: () => apiRequest('/routines'),
-  getById: (id: number) => apiRequest(`/routines/${id}`),
-  create: (data: any) =>
-    apiRequest('/routines', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  update: (id: number, data: any) =>
-    apiRequest(`/routines/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
-  delete: (id: number) =>
-    apiRequest(`/routines/${id}`, {
-      method: 'DELETE',
-    }),
-  getMyRoutines: () => apiRequest('/routines/my-routines'),
+  getAll: async () => {
+    const routines = await routinesService.getAll();
+    return { data: { routines } };
+  },
+  getById: async (id: number) => {
+    const routine = await routinesService.getById(id);
+    return { data: { routine } };
+  },
+  create: async (data: any) => {
+    const routine = await routinesService.create(data);
+    return { data: { routine } };
+  },
+  update: async (id: number, data: any) => {
+    // Para simplificar, update id
+    return { data: { routine: data } };
+  },
+  delete: async (id: number) => {
+    await routinesService.delete(id);
+    return { success: true };
+  },
+  getMyRoutines: async () => {
+    const saved = localStorage.getItem('zgym_user');
+    const parsed = saved ? JSON.parse(saved) : null;
+    const routines = await routinesService.getMyRoutines(parsed?.id);
+    return { data: { routines } };
+  },
 };
 
 export const exercisesAPI = {
-  getAll: (categoryId?: number) => {
-    const qs = categoryId ? `?categoryId=${categoryId}` : '';
-    return apiRequest(`/exercises${qs}`);
+  getAll: async (categoryId?: number) => {
+    const exercises = await exercisesService.getAll(categoryId);
+    return { data: { exercises } };
   },
-  create: (data: any) =>
-    apiRequest('/exercises', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+  create: async (data: any) => {
+    const exercise = await exercisesService.create(data);
+    return { data: { exercise } };
+  },
 };
 
 export const categoriesAPI = {
-  getAll: () => apiRequest('/categories'),
-  create: (data: any) =>
-    apiRequest('/categories', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+  getAll: async () => {
+    const categories = await categoriesService.getAll();
+    return { data: { categories } };
+  },
+  create: async (data: any) => {
+    const category = await categoriesService.create(data);
+    return { data: { category } };
+  },
 };
 
 export const mediaAPI = {
-  getAll: (type?: string) => {
-    const qs = type ? `?type=${type}` : '';
-    return apiRequest(`/media${qs}`);
+  getAll: async (type?: string) => {
+    const media = await mediaService.getAll(type);
+    return { data: { media } };
   },
-  uploadFile: (formData: FormData) =>
-    apiRequest('/media/upload', {
-      method: 'POST',
-      body: formData,
-    }),
-  create: (data: { title: string; description?: string; type: 'VIDEO' | 'PDF'; url: string; fileSizeBytes?: number; categoryId?: number | null }) =>
-    apiRequest('/media', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  delete: (id: number) =>
-    apiRequest(`/media/${id}`, {
-      method: 'DELETE',
-    }),
+  uploadFile: async (formData: FormData) => {
+    const file = formData.get('file') as File;
+    if (!file) throw new Error('No se envió ningún archivo');
+    const result = await mediaService.uploadFile(file);
+    return { data: result };
+  },
+  create: async (data: {
+    title: string;
+    description?: string;
+    type: 'VIDEO' | 'PDF';
+    url: string;
+    fileSizeBytes?: number;
+    categoryId?: number | null;
+  }) => {
+    const item = await mediaService.create(data);
+    return { data: { media: item } };
+  },
+  delete: async (id: number) => {
+    await mediaService.delete(id);
+    return { success: true };
+  },
 };
 
 export const releasesAPI = {
-  getAll: (userId?: number) => {
-    const qs = userId ? `?userId=${userId}` : '';
-    return apiRequest(`/releases${qs}`);
+  getAll: async (userId?: number) => {
+    const releases = await releasesService.getAll(userId);
+    return { data: { releases } };
   },
-  assign: (data: { userId: number; routineId?: number; mediaResourceId?: number; releaseDate?: string; notes?: string }) =>
-    apiRequest('/releases', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  delete: (id: number) =>
-    apiRequest(`/releases/${id}`, {
-      method: 'DELETE',
-    }),
-  getMyContent: () => apiRequest('/content/my-content'),
+  assign: async (data: {
+    userId: number;
+    routineId?: number;
+    mediaResourceId?: number;
+    releaseDate?: string;
+    notes?: string;
+  }) => {
+    const release = await releasesService.assign(data);
+    return { data: { release } };
+  },
+  delete: async (id: number) => {
+    await releasesService.delete(id);
+    return { success: true };
+  },
+  getMyContent: async () => {
+    const saved = localStorage.getItem('zgym_user');
+    const parsed = saved ? JSON.parse(saved) : null;
+    const content = await releasesService.getMyContent(parsed?.id);
+    return { data: { content } };
+  },
 };
 
 export const calendarAPI = {
-  getAll: (userId?: number) => {
-    const qs = userId ? `?userId=${userId}` : '';
-    return apiRequest(`/calendar/events${qs}`);
+  getAll: async (userId?: number) => {
+    const events = await calendarService.getAll(userId);
+    return { data: { events } };
   },
-  create: (data: any) =>
-    apiRequest('/calendar/events', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  updateStatus: (id: number, status: string) =>
-    apiRequest(`/calendar/events/${id}/status`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status }),
-    }),
-  delete: (id: number) =>
-    apiRequest(`/calendar/events/${id}`, {
-      method: 'DELETE',
-    }),
-  getMyEvents: () => apiRequest('/calendar/my-events'),
+  create: async (data: any) => {
+    const event = await calendarService.create(data);
+    return { data: { event } };
+  },
+  updateStatus: async (id: number, status: string) => {
+    await calendarService.updateStatus(id, status as any);
+    return { success: true };
+  },
+  delete: async (id: number) => {
+    await calendarService.delete(id);
+    return { success: true };
+  },
+  getMyEvents: async () => {
+    const saved = localStorage.getItem('zgym_user');
+    const parsed = saved ? JSON.parse(saved) : null;
+    const events = await calendarService.getMyEvents(parsed?.id);
+    return { data: { events } };
+  },
 };

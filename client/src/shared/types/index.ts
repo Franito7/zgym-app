@@ -126,6 +126,7 @@ export interface CalendarEvent {
   status: 'PENDIENTE' | 'COMPLETADO' | 'CANCELADO';
   notes?: string;
   meet_url?: string;
+  created_at?: string;
   first_name?: string;
   last_name?: string;
   phone?: string;
