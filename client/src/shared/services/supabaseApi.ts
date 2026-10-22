@@ -428,13 +428,12 @@ export const paymentsService = {
   async getAll(filters?: { userId?: number; month?: string; search?: string }): Promise<Payment[]> {
     if (isSupabaseConfigured()) {
       try {
-        let query = supabase.from('payments').select('*, user:users(first_name, last_name, plan_name, is_online)');
+        let query = supabase.from('payments').select('*');
 
         if (filters?.userId) {
           query = query.eq('user_id', filters.userId);
         }
         if (filters?.month) {
-          // Filtrado correcto para columnas de tipo DATE en PostgreSQL (formato YYYY-MM)
           const parts = filters.month.split('-');
           const year = Number(parts[0]);
           const month = Number(parts[1]);
@@ -447,33 +446,40 @@ export const paymentsService = {
         const { data, error } = await query.order('payment_date', { ascending: false });
 
         if (error) {
-          console.warn('Advertencia en relación user de payments. Intentando consulta directa:', error.message);
-          let rawQuery = supabase.from('payments').select('*');
-          if (filters?.userId) rawQuery = rawQuery.eq('user_id', filters.userId);
-          if (filters?.month) {
-            const parts = filters.month.split('-');
-            const year = Number(parts[0]);
-            const month = Number(parts[1]);
-            const startDate = `${filters.month}-01`;
-            const lastDay = new Date(year, month, 0).getDate();
-            const endDate = `${filters.month}-${String(lastDay).padStart(2, '0')}`;
-            rawQuery = rawQuery.gte('payment_date', startDate).lte('payment_date', endDate);
-          }
-          const { data: rawData, error: rawError } = await rawQuery.order('payment_date', { ascending: false });
-          if (rawError) {
-            console.error('Error al obtener pagos de Supabase:', rawError.message);
-            return [];
-          }
-          return rawData || [];
+          console.error('Falló consulta de pagos en Supabase:', error);
+          return [];
         }
 
-        return (data || []).map((p: any) => ({
-          ...p,
-          first_name: p.user?.first_name || '',
-          last_name: p.user?.last_name || '',
-          plan_name: p.user?.plan_name || '',
-          is_online: p.user?.is_online || 0,
-        }));
+        const list = data || [];
+        if (list.length === 0) {
+          return [];
+        }
+
+        // Si existen pagos, enriquecer con los datos de usuario en memoria
+        try {
+          const userIds = [...new Set(list.map((p) => p.user_id).filter(Boolean))];
+          if (userIds.length > 0) {
+            const { data: usersData } = await supabase
+              .from('users')
+              .select('id, first_name, last_name, plan_name, is_online')
+              .in('id', userIds);
+            const userMap = new Map((usersData || []).map((u) => [u.id, u]));
+            return list.map((p: any) => {
+              const u = userMap.get(p.user_id);
+              return {
+                ...p,
+                first_name: u?.first_name || '',
+                last_name: u?.last_name || '',
+                plan_name: u?.plan_name || '',
+                is_online: u?.is_online || 0,
+              };
+            });
+          }
+        } catch (enrichErr) {
+          console.warn('Advertencia enriqueciendo pagos con usuarios:', enrichErr);
+        }
+
+        return list;
       } catch (err: any) {
         console.error('Error inesperado en paymentsService.getAll:', err?.message || err);
         return [];
@@ -958,27 +964,42 @@ export const calendarService = {
   async getAll(userId?: number): Promise<CalendarEvent[]> {
     if (isSupabaseConfigured()) {
       try {
-        let query = supabase.from('calendar_events').select('*, user:users(first_name, last_name, phone)');
+        let query = supabase.from('calendar_events').select('*');
         if (userId) query = query.eq('user_id', userId);
         const { data, error } = await query.order('event_date', { ascending: true });
 
         if (error) {
-          console.warn('Advertencia en relación user de calendar_events, intentando consulta directa:', error.message);
-          let rawQuery = supabase.from('calendar_events').select('*');
-          if (userId) rawQuery = rawQuery.eq('user_id', userId);
-          const { data: rawData, error: rawError } = await rawQuery.order('event_date', { ascending: true });
-          if (rawError) {
-            console.error('Error al obtener eventos de Supabase:', rawError.message);
-            return [];
-          }
-          return rawData || [];
+          console.error('Falló consulta de calendario en Supabase:', error);
+          return [];
         }
 
-        return (data || []).map((ev: any) => ({
-          ...ev,
-          first_name: ev.user?.first_name || '',
-          last_name: ev.user?.last_name || '',
-        }));
+        const list = data || [];
+        if (list.length === 0) {
+          return [];
+        }
+
+        try {
+          const userIds = [...new Set(list.map((ev) => ev.user_id).filter(Boolean))];
+          if (userIds.length > 0) {
+            const { data: usersData } = await supabase
+              .from('users')
+              .select('id, first_name, last_name, phone')
+              .in('id', userIds);
+            const userMap = new Map((usersData || []).map((u) => [u.id, u]));
+            return list.map((ev: any) => {
+              const u = userMap.get(ev.user_id);
+              return {
+                ...ev,
+                first_name: u?.first_name || '',
+                last_name: u?.last_name || '',
+              };
+            });
+          }
+        } catch (enrichErr) {
+          console.warn('Advertencia enriqueciendo calendario con usuarios:', enrichErr);
+        }
+
+        return list;
       } catch (err: any) {
         console.error('Error inesperado en calendarService.getAll:', err?.message || err);
         return [];
@@ -1063,10 +1084,12 @@ export const calendarService = {
 };
 
 // ==============================================================================
-// 8. DASHBOARD OPERATIVO (KPIS EN TIEMPO REAL CON MANEJO SEGURO DE ERRORES)
+// 8. DASHBOARD OPERATIVO (KPIS EN TIEMPO REAL CON INSTRUMENTACIÓN TOTAL)
 // ==============================================================================
 export const dashboardService = {
   async getCoachDashboard(): Promise<DashboardStats> {
+    console.log("Dashboard: iniciando carga");
+
     const todayStr = new Date().toISOString().split('T')[0];
     const currentMonth = todayStr.substring(0, 7);
     const jsDay = new Date().getDay();
@@ -1075,28 +1098,49 @@ export const dashboardService = {
     let allStudents: User[] = [];
     let allPayments: Payment[] = [];
     let allEvents: CalendarEvent[] = [];
+    let allRoutines: Routine[] = [];
 
-    // Ejecución segura de cada consulta de forma independiente
+    // 1. Clientes
     try {
+      console.log("Consultando clientes");
       allStudents = await clientsService.getAll();
+      console.log("Clientes OK", allStudents.length);
     } catch (err: any) {
-      console.error('Error al obtener alumnos para dashboard:', err?.message || err);
+      console.error("Falló consulta de clientes", err);
       allStudents = [];
     }
 
+    // 2. Pagos
     try {
-      allPayments = await paymentsService.getAll({ month: currentMonth });
+      console.log("Consultando pagos");
+      allPayments = await paymentsService.getAll();
+      console.log("Pagos OK", allPayments.length);
     } catch (err: any) {
-      console.error('Error al obtener pagos para dashboard:', err?.message || err);
+      console.error("Falló consulta de pagos", err);
       allPayments = [];
     }
 
+    // 3. Calendario
     try {
+      console.log("Consultando calendario");
       allEvents = await calendarService.getAll();
+      console.log("Calendario OK", allEvents.length);
     } catch (err: any) {
-      console.error('Error al obtener eventos para dashboard:', err?.message || err);
+      console.error("Falló consulta de calendario", err);
       allEvents = [];
     }
+
+    // 4. Rutinas
+    try {
+      console.log("Consultando rutinas");
+      allRoutines = await routinesService.getAll();
+      console.log("Rutinas OK", allRoutines.length);
+    } catch (err: any) {
+      console.error("Falló consulta de rutinas", err);
+      allRoutines = [];
+    }
+
+    console.log("Construyendo estadísticas");
 
     // Filtrar únicamente los alumnos (excluyendo a administradores como Augusto)
     const studentsOnly = (allStudents || []).filter((s) => s.role !== 'ADMIN');
@@ -1133,14 +1177,20 @@ export const dashboardService = {
       .sort((a, b) => (a.schedule_time || '12:00').localeCompare(b.schedule_time || '12:00'));
 
     // Total de ingresos del mes
-    const monthRevenue = (allPayments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    const monthRevenue = (allPayments || [])
+      .filter((p) => {
+        const isPaid = !p.status || p.status === 'paid';
+        const matchesMonth = p.payment_date && String(p.payment_date).startsWith(currentMonth);
+        return isPaid && matchesMonth;
+      })
+      .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
     // Citas / Meets de hoy
     const todayEvents = (allEvents || []).filter(
-      (ev) => ev.event_date && ev.event_date.startsWith(todayStr) && ev.status !== 'CANCELADO'
+      (ev) => ev.event_date && String(ev.event_date).startsWith(todayStr) && ev.status !== 'CANCELADO'
     );
 
-    return {
+    const stats: DashboardStats = {
       todayStr,
       dayOfWeek,
       activeStudents,
@@ -1156,5 +1206,8 @@ export const dashboardService = {
       todayEventsCount: todayEvents.length,
       todayEvents,
     };
+
+    console.log("Dashboard listo", stats);
+    return stats;
   },
 };

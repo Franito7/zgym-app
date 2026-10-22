@@ -55,36 +55,28 @@ export const CoachDashboardPage: React.FC = () => {
   const navigate = useNavigate();
 
   const loadData = async () => {
+    console.log('[CoachDashboardPage] loadData: iniciando carga');
     try {
       setLoading(true);
       const res = await dashboardAPI.getCoachDashboard();
+      console.log('[CoachDashboardPage] loadData: respuesta obtenida', res);
       if (res?.data) {
         setStats(res.data);
       } else {
+        console.warn('[CoachDashboardPage] loadData: sin datos, usando getEmptyStats()');
         setStats(getEmptyStats());
       }
     } catch (err: any) {
-      console.error('Error al cargar dashboard en CoachDashboardPage:', err?.message || err);
+      console.error('[CoachDashboardPage] Error crítico en loadData:', err);
       setStats(getEmptyStats());
     } finally {
+      console.log('[CoachDashboardPage] loadData: finalizando con setLoading(false)');
       setLoading(false);
     }
   };
 
   useEffect(() => {
     loadData();
-
-    // Timeout de seguridad: garantiza que bajo ninguna circunstancia loading quede activo más de 4s
-    const timer = setTimeout(() => {
-      setLoading((prev) => {
-        if (prev) {
-          console.warn('Timeout de seguridad alcanzado en carga de Dashboard. Forzando fin de spinner.');
-        }
-        return false;
-      });
-    }, 4000);
-
-    return () => clearTimeout(timer);
   }, []);
 
   const handleOpenClient = async (userId: number) => {
