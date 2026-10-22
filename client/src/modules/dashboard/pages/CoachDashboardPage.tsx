@@ -23,8 +23,29 @@ import { ClientFormSheet } from '../../clients/components/ClientFormSheet';
 import { QuickActionFab } from '../../../shared/components/QuickActionFab';
 import { useNavigate } from 'react-router-dom';
 
+const getEmptyStats = (): DashboardStats => {
+  const todayStr = new Date().toISOString().split('T')[0];
+  const jsDay = new Date().getDay();
+  return {
+    todayStr,
+    dayOfWeek: jsDay === 0 ? 7 : jsDay,
+    activeStudents: 0,
+    totalStudents: 0,
+    expiringStudentsCount: 0,
+    expiringStudents: [],
+    overdueStudentsCount: 0,
+    overdueStudents: [],
+    todayStudentsCount: 0,
+    todayStudents: [],
+    monthRevenue: 0,
+    recentPayments: [],
+    todayEventsCount: 0,
+    todayEvents: [],
+  };
+};
+
 export const CoachDashboardPage: React.FC = () => {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [stats, setStats] = useState<DashboardStats>(getEmptyStats);
   const [loading, setLoading] = useState(true);
   const [selectedClient, setSelectedClient] = useState<User | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
@@ -35,12 +56,16 @@ export const CoachDashboardPage: React.FC = () => {
 
   const loadData = async () => {
     try {
+      setLoading(true);
       const res = await dashboardAPI.getCoachDashboard();
       if (res?.data) {
         setStats(res.data);
+      } else {
+        setStats(getEmptyStats());
       }
-    } catch (err) {
-      console.error('Error al cargar dashboard:', err);
+    } catch (err: any) {
+      console.error('Error al cargar dashboard en CoachDashboardPage:', err?.message || err);
+      setStats(getEmptyStats());
     } finally {
       setLoading(false);
     }
@@ -48,6 +73,18 @@ export const CoachDashboardPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
+
+    // Timeout de seguridad: garantiza que bajo ninguna circunstancia loading quede activo más de 4s
+    const timer = setTimeout(() => {
+      setLoading((prev) => {
+        if (prev) {
+          console.warn('Timeout de seguridad alcanzado en carga de Dashboard. Forzando fin de spinner.');
+        }
+        return false;
+      });
+    }, 4000);
+
+    return () => clearTimeout(timer);
   }, []);
 
   const handleOpenClient = async (userId: number) => {
@@ -57,8 +94,8 @@ export const CoachDashboardPage: React.FC = () => {
         setSelectedClient(res.data.user);
         setIsDetailOpen(true);
       }
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error('Error al abrir detalle de cliente:', err?.message || err);
     }
   };
 
@@ -93,7 +130,7 @@ export const CoachDashboardPage: React.FC = () => {
     window.open(buildWhatsAppUrl(client.phone, msg), '_blank');
   };
 
-  if (loading || !stats) {
+  if (loading) {
     return (
       <div className="p-6 flex flex-col items-center justify-center min-h-[60vh] space-y-3">
         <div className="w-8 h-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />

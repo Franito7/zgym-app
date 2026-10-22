@@ -226,28 +226,36 @@ export const authService = {
 export const clientsService = {
   async getAll(filters?: { search?: string; status?: string; type?: string; role?: string }): Promise<User[]> {
     if (isSupabaseConfigured()) {
-      let query = supabase.from('users').select('*');
+      try {
+        let query = supabase.from('users').select('*');
 
-      if (filters?.role) {
-        query = query.eq('role', filters.role);
-      }
-      if (filters?.status && filters.status !== 'all') {
-        query = query.eq('account_status', filters.status);
-      }
-      if (filters?.type === 'presencial') {
-        query = query.eq('is_presencial', 1);
-      } else if (filters?.type === 'online') {
-        query = query.eq('is_online', 1);
-      } else if (filters?.type === 'hybrid') {
-        query = query.eq('is_presencial', 1).eq('is_online', 1);
-      }
-      if (filters?.search) {
-        query = query.or(`first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,phone.ilike.%${filters.search}%`);
-      }
+        if (filters?.role) {
+          query = query.eq('role', filters.role);
+        }
+        if (filters?.status && filters.status !== 'all') {
+          query = query.eq('account_status', filters.status);
+        }
+        if (filters?.type === 'presencial') {
+          query = query.eq('is_presencial', 1);
+        } else if (filters?.type === 'online') {
+          query = query.eq('is_online', 1);
+        } else if (filters?.type === 'hybrid') {
+          query = query.eq('is_presencial', 1).eq('is_online', 1);
+        }
+        if (filters?.search) {
+          query = query.or(`first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,phone.ilike.%${filters.search}%`);
+        }
 
-      const { data, error } = await query.order('first_name', { ascending: true });
-      if (error) throw new Error(error.message);
-      return data || [];
+        const { data, error } = await query.order('first_name', { ascending: true });
+        if (error) {
+          console.error('Error al consultar tabla users en Supabase:', error.message);
+          return [];
+        }
+        return data || [];
+      } catch (err: any) {
+        console.error('Error inesperado en clientsService.getAll:', err?.message || err);
+        return [];
+      }
     }
 
     // Fallback local
@@ -419,25 +427,57 @@ export const clientsService = {
 export const paymentsService = {
   async getAll(filters?: { userId?: number; month?: string; search?: string }): Promise<Payment[]> {
     if (isSupabaseConfigured()) {
-      let query = supabase.from('payments').select('*, user:users(first_name, last_name, plan_name, is_online)');
+      try {
+        let query = supabase.from('payments').select('*, user:users(first_name, last_name, plan_name, is_online)');
 
-      if (filters?.userId) {
-        query = query.eq('user_id', filters.userId);
+        if (filters?.userId) {
+          query = query.eq('user_id', filters.userId);
+        }
+        if (filters?.month) {
+          // Filtrado correcto para columnas de tipo DATE en PostgreSQL (formato YYYY-MM)
+          const parts = filters.month.split('-');
+          const year = Number(parts[0]);
+          const month = Number(parts[1]);
+          const startDate = `${filters.month}-01`;
+          const lastDay = new Date(year, month, 0).getDate();
+          const endDate = `${filters.month}-${String(lastDay).padStart(2, '0')}`;
+          query = query.gte('payment_date', startDate).lte('payment_date', endDate);
+        }
+
+        const { data, error } = await query.order('payment_date', { ascending: false });
+
+        if (error) {
+          console.warn('Advertencia en relación user de payments. Intentando consulta directa:', error.message);
+          let rawQuery = supabase.from('payments').select('*');
+          if (filters?.userId) rawQuery = rawQuery.eq('user_id', filters.userId);
+          if (filters?.month) {
+            const parts = filters.month.split('-');
+            const year = Number(parts[0]);
+            const month = Number(parts[1]);
+            const startDate = `${filters.month}-01`;
+            const lastDay = new Date(year, month, 0).getDate();
+            const endDate = `${filters.month}-${String(lastDay).padStart(2, '0')}`;
+            rawQuery = rawQuery.gte('payment_date', startDate).lte('payment_date', endDate);
+          }
+          const { data: rawData, error: rawError } = await rawQuery.order('payment_date', { ascending: false });
+          if (rawError) {
+            console.error('Error al obtener pagos de Supabase:', rawError.message);
+            return [];
+          }
+          return rawData || [];
+        }
+
+        return (data || []).map((p: any) => ({
+          ...p,
+          first_name: p.user?.first_name || '',
+          last_name: p.user?.last_name || '',
+          plan_name: p.user?.plan_name || '',
+          is_online: p.user?.is_online || 0,
+        }));
+      } catch (err: any) {
+        console.error('Error inesperado en paymentsService.getAll:', err?.message || err);
+        return [];
       }
-      if (filters?.month) {
-        query = query.like('payment_date', `${filters.month}%`);
-      }
-
-      const { data, error } = await query.order('payment_date', { ascending: false });
-      if (error) throw new Error(error.message);
-
-      return (data || []).map((p: any) => ({
-        ...p,
-        first_name: p.user?.first_name,
-        last_name: p.user?.last_name,
-        plan_name: p.user?.plan_name,
-        is_online: p.user?.is_online,
-      }));
     }
 
     const payments = getLocalTable<Payment>('payments');
@@ -531,21 +571,35 @@ export const paymentsService = {
 export const routinesService = {
   async getAll(): Promise<Routine[]> {
     if (isSupabaseConfigured()) {
-      const { data, error } = await supabase
-        .from('routines')
-        .select('*, exercises:routine_exercises(*, exercise:exercises(*))')
-        .order('id', { ascending: false });
+      try {
+        const { data, error } = await supabase
+          .from('routines')
+          .select('*, exercises:routine_exercises(*, exercise:exercises(*))')
+          .order('id', { ascending: false });
 
-      if (error) throw new Error(error.message);
-      return (data || []).map((r: any) => ({
-        ...r,
-        exercises: (r.exercises || []).map((re: any) => ({
-          ...re,
-          title: re.exercise?.title,
-          description: re.exercise?.description,
-          video_url: re.exercise?.video_url,
-        })),
-      }));
+        if (error) {
+          console.warn('Advertencia en relación de routines con exercises. Consultando tabla directa:', error.message);
+          const { data: rawData, error: rawError } = await supabase.from('routines').select('*').order('id', { ascending: false });
+          if (rawError) {
+            console.error('Error al obtener rutinas de Supabase:', rawError.message);
+            return [];
+          }
+          return (rawData || []).map((r) => ({ ...r, exercises: [] }));
+        }
+
+        return (data || []).map((r: any) => ({
+          ...r,
+          exercises: (r.exercises || []).map((re: any) => ({
+            ...re,
+            title: re.exercise?.title,
+            description: re.exercise?.description,
+            video_url: re.exercise?.video_url,
+          })),
+        }));
+      } catch (err: any) {
+        console.error('Error inesperado en routinesService.getAll:', err?.message || err);
+        return [];
+      }
     }
 
     return getLocalTable<Routine>('routines');
@@ -632,16 +686,33 @@ export const routinesService = {
 export const exercisesService = {
   async getAll(categoryId?: number): Promise<Exercise[]> {
     if (isSupabaseConfigured()) {
-      let query = supabase.from('exercises').select('*, category:categories(name)');
-      if (categoryId) {
-        query = query.eq('category_id', categoryId);
+      try {
+        let query = supabase.from('exercises').select('*, category:categories(name)');
+        if (categoryId) {
+          query = query.eq('category_id', categoryId);
+        }
+        const { data, error } = await query.order('title', { ascending: true });
+
+        if (error) {
+          console.warn('Advertencia en relación category de exercises. Consultando tabla directa:', error.message);
+          let rawQuery = supabase.from('exercises').select('*');
+          if (categoryId) rawQuery = rawQuery.eq('category_id', categoryId);
+          const { data: rawData, error: rawError } = await rawQuery.order('title', { ascending: true });
+          if (rawError) {
+            console.error('Error al obtener ejercicios de Supabase:', rawError.message);
+            return [];
+          }
+          return rawData || [];
+        }
+
+        return (data || []).map((ex: any) => ({
+          ...ex,
+          category_name: ex.category?.name,
+        }));
+      } catch (err: any) {
+        console.error('Error inesperado en exercisesService.getAll:', err?.message || err);
+        return [];
       }
-      const { data, error } = await query.order('title', { ascending: true });
-      if (error) throw new Error(error.message);
-      return (data || []).map((ex: any) => ({
-        ...ex,
-        category_name: ex.category?.name,
-      }));
     }
 
     return getLocalTable<Exercise>('exercises');
@@ -674,9 +745,17 @@ export const exercisesService = {
 export const categoriesService = {
   async getAll(): Promise<Category[]> {
     if (isSupabaseConfigured()) {
-      const { data, error } = await supabase.from('categories').select('*').order('name');
-      if (error) throw new Error(error.message);
-      return data || [];
+      try {
+        const { data, error } = await supabase.from('categories').select('*').order('name');
+        if (error) {
+          console.error('Error al obtener categorías de Supabase:', error.message);
+          return [];
+        }
+        return data || [];
+      } catch (err: any) {
+        console.error('Error inesperado en categoriesService.getAll:', err?.message || err);
+        return [];
+      }
     }
     return getLocalTable<Category>('categories');
   },
@@ -709,13 +788,21 @@ export const categoriesService = {
 export const mediaService = {
   async getAll(type?: string): Promise<MediaResource[]> {
     if (isSupabaseConfigured()) {
-      let query = supabase.from('media_resources').select('*');
-      if (type) {
-        query = query.eq('type', type);
+      try {
+        let query = supabase.from('media_resources').select('*');
+        if (type) {
+          query = query.eq('type', type);
+        }
+        const { data, error } = await query.order('id', { ascending: false });
+        if (error) {
+          console.error('Error al obtener recursos multimedia de Supabase:', error.message);
+          return [];
+        }
+        return data || [];
+      } catch (err: any) {
+        console.error('Error inesperado en mediaService.getAll:', err?.message || err);
+        return [];
       }
-      const { data, error } = await query.order('id', { ascending: false });
-      if (error) throw new Error(error.message);
-      return data || [];
     }
     return getLocalTable<MediaResource>('media_resources');
   },
@@ -870,15 +957,32 @@ export const releasesService = {
 export const calendarService = {
   async getAll(userId?: number): Promise<CalendarEvent[]> {
     if (isSupabaseConfigured()) {
-      let query = supabase.from('calendar_events').select('*, user:users(first_name, last_name, phone)');
-      if (userId) query = query.eq('user_id', userId);
-      const { data, error } = await query.order('event_date', { ascending: true });
-      if (error) throw new Error(error.message);
-      return (data || []).map((ev: any) => ({
-        ...ev,
-        first_name: ev.user?.first_name,
-        last_name: ev.user?.last_name,
-      }));
+      try {
+        let query = supabase.from('calendar_events').select('*, user:users(first_name, last_name, phone)');
+        if (userId) query = query.eq('user_id', userId);
+        const { data, error } = await query.order('event_date', { ascending: true });
+
+        if (error) {
+          console.warn('Advertencia en relación user de calendar_events, intentando consulta directa:', error.message);
+          let rawQuery = supabase.from('calendar_events').select('*');
+          if (userId) rawQuery = rawQuery.eq('user_id', userId);
+          const { data: rawData, error: rawError } = await rawQuery.order('event_date', { ascending: true });
+          if (rawError) {
+            console.error('Error al obtener eventos de Supabase:', rawError.message);
+            return [];
+          }
+          return rawData || [];
+        }
+
+        return (data || []).map((ev: any) => ({
+          ...ev,
+          first_name: ev.user?.first_name || '',
+          last_name: ev.user?.last_name || '',
+        }));
+      } catch (err: any) {
+        console.error('Error inesperado en calendarService.getAll:', err?.message || err);
+        return [];
+      }
     }
 
     const events = getLocalTable<CalendarEvent>('calendar_events');
@@ -959,7 +1063,7 @@ export const calendarService = {
 };
 
 // ==============================================================================
-// 8. DASHBOARD OPERATIVO (KPIS EN TIEMPO REAL)
+// 8. DASHBOARD OPERATIVO (KPIS EN TIEMPO REAL CON MANEJO SEGURO DE ERRORES)
 // ==============================================================================
 export const dashboardService = {
   async getCoachDashboard(): Promise<DashboardStats> {
@@ -968,16 +1072,38 @@ export const dashboardService = {
     const jsDay = new Date().getDay();
     const dayOfWeek = jsDay === 0 ? 7 : jsDay;
 
-    const [allStudents, allPayments, allEvents] = await Promise.all([
-      clientsService.getAll(),
-      paymentsService.getAll({ month: currentMonth }),
-      calendarService.getAll(),
-    ]);
+    let allStudents: User[] = [];
+    let allPayments: Payment[] = [];
+    let allEvents: CalendarEvent[] = [];
 
-    const activeStudents = allStudents.filter((s) => s.account_status === 'ACTIVO').length;
+    // Ejecución segura de cada consulta de forma independiente
+    try {
+      allStudents = await clientsService.getAll();
+    } catch (err: any) {
+      console.error('Error al obtener alumnos para dashboard:', err?.message || err);
+      allStudents = [];
+    }
+
+    try {
+      allPayments = await paymentsService.getAll({ month: currentMonth });
+    } catch (err: any) {
+      console.error('Error al obtener pagos para dashboard:', err?.message || err);
+      allPayments = [];
+    }
+
+    try {
+      allEvents = await calendarService.getAll();
+    } catch (err: any) {
+      console.error('Error al obtener eventos para dashboard:', err?.message || err);
+      allEvents = [];
+    }
+
+    // Filtrar únicamente los alumnos (excluyendo a administradores como Augusto)
+    const studentsOnly = (allStudents || []).filter((s) => s.role !== 'ADMIN');
+    const activeStudents = studentsOnly.filter((s) => s.account_status === 'ACTIVO').length;
 
     // Alumnos con vencimiento en los próximos 7 días
-    const expiringStudents = allStudents
+    const expiringStudents = studentsOnly
       .filter((s) => {
         if (!s.is_presencial || !s.due_date || s.account_status === 'SUSPENDIDO') return false;
         const diffDays = Math.ceil((new Date(s.due_date).getTime() - new Date(todayStr).getTime()) / (1000 * 3600 * 24));
@@ -986,7 +1112,7 @@ export const dashboardService = {
       .sort((a, b) => (a.due_date || '').localeCompare(b.due_date || ''));
 
     // Alumnos atrasados / vencidos
-    const overdueStudents = allStudents
+    const overdueStudents = studentsOnly
       .filter((s) => {
         if (!s.is_presencial || !s.due_date || s.account_status === 'SUSPENDIDO') return false;
         return (s.due_date || '') < todayStr;
@@ -994,7 +1120,7 @@ export const dashboardService = {
       .sort((a, b) => (a.due_date || '').localeCompare(b.due_date || ''));
 
     // Alumnos de hoy según días seleccionados
-    const todayStudents = allStudents
+    const todayStudents = studentsOnly
       .filter((s) => {
         if (!s.is_presencial || s.account_status === 'SUSPENDIDO') return false;
         try {
@@ -1007,16 +1133,18 @@ export const dashboardService = {
       .sort((a, b) => (a.schedule_time || '12:00').localeCompare(b.schedule_time || '12:00'));
 
     // Total de ingresos del mes
-    const monthRevenue = allPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    const monthRevenue = (allPayments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
     // Citas / Meets de hoy
-    const todayEvents = allEvents.filter((ev) => ev.event_date && ev.event_date.startsWith(todayStr) && ev.status !== 'CANCELADO');
+    const todayEvents = (allEvents || []).filter(
+      (ev) => ev.event_date && ev.event_date.startsWith(todayStr) && ev.status !== 'CANCELADO'
+    );
 
     return {
       todayStr,
       dayOfWeek,
       activeStudents,
-      totalStudents: allStudents.length,
+      totalStudents: studentsOnly.length,
       expiringStudentsCount: expiringStudents.length,
       expiringStudents,
       overdueStudentsCount: overdueStudents.length,
@@ -1024,7 +1152,7 @@ export const dashboardService = {
       todayStudentsCount: todayStudents.length,
       todayStudents,
       monthRevenue,
-      recentPayments: allPayments.slice(0, 6),
+      recentPayments: (allPayments || []).slice(0, 6),
       todayEventsCount: todayEvents.length,
       todayEvents,
     };
